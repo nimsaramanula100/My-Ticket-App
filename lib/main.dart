@@ -1,117 +1,147 @@
-import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
+// lib/main.dart
+// ─────────────────────────────────────────────────────────────────────────────
+// App Entry Point | App ආරම්භ ස්ථානය
+// This is the first file Flutter runs when the app starts.
+// App ආරම්භ වූ විට Flutter ධාවනය කරන පළමු ගොනුව.
+// It initializes Firebase, sets up state management providers,
+// and defines all named routes for navigation.
+// Firebase initialize කිරීම, state management providers setup කිරීම,
+// සහ navigation සඳහා named routes නිර්වචනය කිරීම.
+// ─────────────────────────────────────────────────────────────────────────────
 import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_app_check/firebase_app_check.dart';
-import 'package:firebase_database/firebase_database.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:firebase_app_check/firebase_app_check.dart';
 import 'firebase_options.dart';
-import 'services/auth_service.dart';
-import 'services/firestore_service.dart';
 import 'screens/splash_screen.dart';
-import 'screens/login_screen.dart';
 import 'screens/home_screen.dart';
+import 'screens/login_screen.dart';
+import 'screens/ticket_detail_screen.dart';
 import 'screens/profile_screen.dart';
+import 'screens/organizer_dashboard.dart';
+import 'screens/create_event_screen.dart';
 import 'screens/admin_login_screen.dart';
 import 'screens/admin_panel.dart';
 import 'screens/admin_users_screen.dart';
+import 'screens/map_picker_screen.dart';
+import 'services/auth_service.dart';
+import 'services/firestore_service.dart';
+import 'providers/auth_provider.dart';
+import 'providers/ticket_provider.dart';
+import 'providers/booking_provider.dart';
+import 'providers/organizer_provider.dart';
+import 'providers/theme_provider.dart';
+import 'theme/app_theme.dart';
 
+// ─── main(): App starting point | App ආරම්භ ශ්‍රිතය ────────────────────────
+// The 'async' keyword is needed because Firebase initialization is async.
+// Firebase initialization async ක්‍රියාවලියක් නිසා 'async' keyword අවශ්‍ය.
 void main() async {
+  // Ensures Flutter's binding is initialized before calling async ops
+  // Async operations call කිරීමට පෙර Flutter binding initialize වී ඇත්දැයි සහතික කරයි
   WidgetsFlutterBinding.ensureInitialized();
-  // Initialize Firebase:
-  // - On web we must provide options (from dart-define or generated file)
-  // - On native platforms, Firebase will read platform config files
-  //   (google-services.json / GoogleService-Info.plist) if present.
-  if (kIsWeb) {
-    try {
-      await Firebase.initializeApp(
-        options: DefaultFirebaseOptions.currentPlatform,
+
+  try {
+    // Initialize Firebase with platform-specific options (from firebase_options.dart)
+    // Platform-specific options (firebase_options.dart) සමඟ Firebase initialize කරයි
+    await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform);
+
+    // Firebase App Check: protects backend resources from abuse (only in Release/Production)
+    // Firebase App Check: backend resources abuse වලින් ආරක්ෂා කරයි (Release/Production mode හිදී)
+    // In debug mode, App Check can block all Firebase requests without a registered debug token.
+    // Debug mode හිදී, registered debug token නොමැතිව App Check Firebase requests block කළ හැකිය.
+    if (!kDebugMode) {
+      await FirebaseAppCheck.instance.activate(
+        androidProvider: AndroidProvider.playIntegrity,
+        appleProvider: AppleProvider.deviceCheck,
       );
-    } catch (e) {
-      // Missing web options — app will run but Firebase features will be disabled.
-      // Provide credentials via --dart-define or generate lib/firebase_options.dart.
-      // ignore: avoid_print
-      print('Warning: Firebase web options not provided: $e');
     }
-  } else {
-    try {
-      await Firebase.initializeApp();
-      // Activate App Check in debug mode so the native SDK sends a debug
-      // App Check token during development. This prevents the server from
-      // rejecting connections when App Check enforcement is enabled.
-      if (kDebugMode && !kIsWeb) {
-        try {
-          await FirebaseAppCheck.instance
-              .activate(androidProvider: AndroidProvider.debug);
-        } catch (e) {
-          // ignore: avoid_print
-          print('Warning: Firebase App Check activation failed: $e');
-        }
-      }
-    } catch (e) {
-      // If native initialization fails, attempt to initialize from
-      // `DefaultFirebaseOptions`. If that is not configured we'll
-      // catch the error and continue running the app (Firebase
-      // features will be disabled). This prevents StateError from
-      // bubbling up into UI flows such as sign up.
-      try {
-        await Firebase.initializeApp(
-          options: DefaultFirebaseOptions.currentPlatform,
-        );
-      } catch (e2) {
-        // ignore: avoid_print
-        print('Warning: Firebase initialization failed: $e2');
-      }
-    }
+  } catch (e) {
+    // Log Firebase init errors but continue (app will still load without Firebase)
+    // Firebase init errors log කරයි නමුත් ඉදිරියට යයි (Firebase නොමැතිව app load වේ)
+    debugPrint("Firebase initialization error: $e");
   }
-  // RTDB smoke test in debug mode
-  if (kDebugMode) {
-    try {
-      final db = FirebaseDatabase.instance;
-      await db
-          .ref('smoke_test')
-          .set({'initialized': DateTime.now().toIso8601String()});
-      final snapshot = await db.ref('smoke_test').get();
-      // ignore: avoid_print
-      print('RTDB smoke_test -> ${snapshot.value}');
-    } catch (e) {
-      // ignore: avoid_print
-      print('RTDB smoke test failed: $e');
-    }
-  }
-  runApp(const MyTicketsApp());
+
+  // Start the app with all providers registered globally
+  // Providers globally registered සමඟ App ආරම්භ කරයි
+  runApp(
+    MultiProvider(
+      providers: [
+        // AuthService: Raw Firebase Auth & Firestore calls
+        // AuthService: Raw Firebase Auth & Firestore calls
+        Provider<AuthService>(create: (_) => AuthService()),
+
+        // FirestoreService: Raw Firestore database operations
+        // FirestoreService: Raw Firestore database operations
+        Provider<FirestoreService>(create: (_) => FirestoreService()),
+
+        // AuthProvider: Manages login/logout state globally
+        // AuthProvider: Login/logout state globally කළමනාකරණය කරයි
+        ChangeNotifierProvider<AuthProvider>(create: (_) => AuthProvider()),
+
+        // TicketProvider: Manages the list of events/tickets
+        // TicketProvider: Events/tickets ලැයිස්තුව කළමනාකරණය කරයි
+        ChangeNotifierProvider<TicketProvider>(create: (_) => TicketProvider()),
+
+        // BookingProvider: Manages the current user's booking list
+        // BookingProvider: වත්මන් user ගේ booking ලැයිස්තුව කළමනාකරණය කරයි
+        ChangeNotifierProvider<BookingProvider>(
+            create: (_) => BookingProvider()),
+
+        // OrganizerProvider: Manages organizer-specific data
+        // OrganizerProvider: Organizer-specific data කළමනාකරණය කරයි
+        ChangeNotifierProvider<OrganizerProvider>(
+            create: (_) => OrganizerProvider()),
+
+        // ThemeProvider: Manages light/dark mode preference
+        // ThemeProvider: ලා/අඳුරු තේමා මනාපය කළමනාකරණය කරයි
+        ChangeNotifierProvider<ThemeProvider>(
+            create: (_) => ThemeProvider()),
+      ],
+      child: const MyApp(),
+    ),
+  );
 }
 
-class MyTicketsApp extends StatelessWidget {
-  const MyTicketsApp({Key? key}) : super(key: key);
+// ─── MyApp: Root widget of the application | Application හි Root widget ───────
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return MultiProvider(
-      providers: [
-        Provider<AuthService>(create: (_) => AuthService()),
-        Provider<FirestoreService>(create: (_) => FirestoreService()),
-      ],
-      child: MaterialApp(
-        title: 'MyTickets',
-        debugShowCheckedModeBanner: false,
-        theme: ThemeData(
-          primarySwatch: Colors.blue,
-          useMaterial3: true,
-          fontFamily: 'Roboto',
-        ),
-        // Start the app on the splash screen which will route to login/home
-        home: const SplashScreen(),
-        routes: {
-          '/login': (context) => const LoginScreen(),
-          '/home': (context) => const HomeScreen(),
-          '/profile': (context) => const ProfileScreen(),
-          '/admin': (context) => const AdminLoginScreen(),
-          '/admin_panel': (context) => const AdminPanel(),
-          '/admin_users': (context) => const AdminUsersScreen(),
-        },
-      ),
+    return Consumer<ThemeProvider>(
+      builder: (context, themeProvider, child) {
+        return MaterialApp(
+          title: 'MyTickets',
+          // Theme configurations | තේමා සැකසුම්
+          themeMode: themeProvider.themeMode,
+          theme: AppTheme.userLightTheme(),
+          darkTheme: AppTheme.userDarkTheme(),
+          // Hide the debug banner in the top-right corner
+      // ඉහළ-දකුණු කෙළවරේ debug banner සඟවයි
+      debugShowCheckedModeBanner: false,
+      // The initial route shown when the app starts
+      // App ආරම්භ වූ විට දක්වන initial route
+      initialRoute: '/',
+      // Named routes — maps URL-like paths to Screen widgets
+      // Named routes — URL-like paths Screen widgets ලෙසට map කරයි
+      routes: {
+        '/': (_) => const SplashScreen(),              // Splash/loading screen | Splash/loading screen
+        '/home': (_) => const HomeScreen(),             // Main event listing | ප්‍රධාන event listing
+        '/login': (_) => const LoginScreen(),           // Login/Register | Login/Register
+        '/profile': (_) => const ProfileScreen(),       // User profile & bookings | User profile & bookings
+        '/ticket': (_) => const TicketDetailScreen(),   // Event details & booking | Event details & booking
+        '/organizer_dashboard': (_) => const OrganizerDashboardScreen(), // Organizer management | Organizer management
+        '/create_event': (_) => const CreateEventScreen(), // Create new event | නව event සාදීම
+        '/admin_login': (_) => const AdminLoginScreen(),   // Admin login | Admin login
+        '/admin_panel': (_) => const AdminPanel(),         // Admin management panel | Admin management panel
+        '/admin_users': (_) => const AdminUsersScreen(),   // Admin user list | Admin user list
+        '/map_picker': (_) => const MapPickerScreen(),     // Location map picker | Location map picker
+      },
+    );
+      },
     );
   }
 }
-
-// Import screens here to avoid circular imports

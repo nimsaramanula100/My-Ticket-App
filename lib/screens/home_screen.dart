@@ -1,328 +1,368 @@
+// lib/screens/home_screen.dart
+// ─────────────────────────────────────────────────────────────────────────────
+// HomeScreen | ගෙදර තිරය (Main Discovery Screen)
+// The primary screen where users browse all published events.
+// Features a collapsing hero app bar, real-time search, category filter chips,
+// an organizer quick-link banner, a section count label, and the event list.
+// සිදුවීම් ගවේෂණය කිරීමේ ප්‍රධාන තිරය.
+// හෙරෝ AppBar, සෙවීම, ප්‍රවර්ග ෆිල්ටර, සංවිධායක banner, සහ සිදුවීම් ලැයිස්තුව ඇත.
+// ─────────────────────────────────────────────────────────────────────────────
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import '../services/auth_service.dart';
-import '../services/firestore_service.dart';
-import '../models/ticket.dart';
+import '../providers/auth_provider.dart' as app_auth;
+import '../providers/ticket_provider.dart';
+import '../models/user.dart';
 import '../widgets/ticket_card.dart';
+import '../theme/color_palette.dart';
 import 'ticket_detail_screen.dart';
-import 'login_screen.dart';
-import 'profile_screen.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({Key? key}) : super(key: key);
+  const HomeScreen({super.key});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  late Future<List<Ticket>> _ticketsFuture;
-  String _selectedCategory = 'All';
-  final List<String> _categories = [
-    'All',
-    'Concert',
-    'Movie',
-    'Sports',
-    'Theater'
-  ];
+  // Search text controller | සෙවීම් ආදාන පාලකය
+  final _searchController = TextEditingController();
 
   @override
-  void initState() {
-    super.initState();
-    _loadTickets();
+  void dispose() {
+    // Release search controller memory | සෙවීම් පාලකයේ මතකය නිදහස් කරයි
+    _searchController.dispose();
+    super.dispose();
   }
 
-  void _loadTickets() {
-    final firestoreService = context.read<FirestoreService>();
-    _ticketsFuture = _selectedCategory == 'All'
-        ? firestoreService.getAllTickets()
-        : firestoreService.getTicketsByCategory(_selectedCategory);
-    setState(() {});
+  // ─── _navigateToProfile: Routes to the right screen based on auth state ──
+  // _navigateToProfile: ප්‍රමාණීකරණ (auth) තත්වය අනුව නිවැරදි ප්‍රොෆයිල් තිරයට
+  void _navigateToProfile() {
+    final auth = context.read<app_auth.AuthProvider>();
+    if (!auth.isSignedIn) {
+      Navigator.of(context).pushNamed('/login');       // Not signed in → login | ලොගිනය නොකළ → ලොගිනය
+    } else if (auth.role == UserRole.organizer) {
+      Navigator.of(context).pushNamed('/organizer_dashboard'); // Organizer → dashboard
+    } else {
+      Navigator.of(context).pushNamed('/profile');     // User → profile | පරිශීලකයා → ප්‍රොෆයිල්
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    // Watch auth and ticket providers for reactive rebuilds
+    // ප්‍රතික්‍රියාශීලී නැවත ගොඩනිව්ම සඳහා auth සහ ticket providers නිරීක්ෂණය
+    final auth = context.watch<app_auth.AuthProvider>();
+    final ticketProvider = context.watch<TicketProvider>();
+
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('MyTickets'),
-        elevation: 0,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.account_circle),
-            onPressed: () {
-              final user = FirebaseAuth.instance.currentUser;
-              if (user == null) {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => const LoginScreen(initialSignUp: false),
-                  ),
-                );
-              } else {
-                _showProfileMenu();
-              }
-            },
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          // Search bar
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: TextField(
-              decoration: InputDecoration(
-                hintText: 'Search events...',
-                prefixIcon: const Icon(Icons.search),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
+      backgroundColor: AppColors.background,
+      body: CustomScrollView(
+        slivers: [
+          // ── Hero SliverAppBar: Collapses on scroll ──────────────────────
+          // ── Hero SliverAppBar: අනුචලනයේදී හකුළේ ─────────────────────────
+          SliverAppBar(
+            expandedHeight: 140,
+            floating: true,   // Snaps back into view on scroll up | ඉහළ අනුචලනයේදී නැවත පෙනේ
+            snap: true,       // Snaps fully open or closed | සම්පූර්ණ විවෘත/වසා snap වේ
+            backgroundColor: AppColors.primary,
+            flexibleSpace: FlexibleSpaceBar(
+              background: Container(
+                decoration: const BoxDecoration(
+                  gradient: AppColors.primaryGradient, // Dark blue gradient | තද නිල් gradient
                 ),
-                contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                child: SafeArea(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // App brand label | යෙදුම් ලාංජන ලේබලය
+                              const Text(
+                                'MyTickets.lk',
+                                style: TextStyle(
+                                  color: AppColors.accent,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  letterSpacing: 1,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              // Personalized greeting if signed in, else generic
+                              // ලොගිනය කළේ නම් පෞද්ගලිකිකෘත ආදරාමී, නැතිනම් සාමාන්‍ය
+                              Text(
+                                auth.isSignedIn
+                                    ? 'Hi, ${auth.appUser?.displayName ?? 'there'} 👋'
+                                    : 'Discover Events',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const Text(
+                                'Find your next unforgettable experience',
+                                style: TextStyle(
+                                    color: AppColors.textSecondary,
+                                    fontSize: 13),
+                              ),
+                            ],
+                          ),
+                        ),
+                        // Profile avatar / login icon button
+                        // ප්‍රොෆයිල් avatar / ලොගිනය නිරූපකය
+                        GestureDetector(
+                          onTap: _navigateToProfile,
+                          child: Container(
+                            padding: const EdgeInsets.all(3),
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                  color: AppColors.accent, width: 2),
+                            ),
+                            child: CircleAvatar(
+                              radius: 20,
+                              backgroundColor:
+                                  AppColors.accent.withValues(alpha: 0.2),
+                              // Show initials if signed in, else person icon
+                              // ලොගිනය කළේ නම් මූලාක්ෂර, නැතිනම් person icon
+                              child: auth.isSignedIn
+                                  ? Text(
+                                      auth.appUser?.initials ?? 'U',
+                                      style: const TextStyle(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 15),
+                                    )
+                                  : const Icon(Icons.person,
+                                      color: Colors.white, size: 22),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               ),
             ),
           ),
-          // Category filter
-          SizedBox(
-            height: 50,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              children: _categories.map((category) {
-                final isSelected = _selectedCategory == category;
-                return Padding(
-                  padding: const EdgeInsets.only(right: 12),
-                  child: GestureDetector(
-                    onTap: () {
-                      setState(() => _selectedCategory = category);
-                      _loadTickets();
-                    },
-                    child: Chip(
-                      label: Text(category),
-                      backgroundColor:
-                          isSelected ? Colors.blue : Colors.grey.shade200,
-                      labelStyle: TextStyle(
-                        color: isSelected ? Colors.white : Colors.black,
+
+          // ── Search Bar: Triggers TicketProvider search filter ───────────
+          // ── සෙවීම් තීරුව: TicketProvider සෙවීම් ෆිල්ටරය ක්‍රියාත්මක කරයි ──
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: TextField(
+                controller: _searchController,
+                style: const TextStyle(color: Colors.white),
+                // Pipes text to provider on each keystroke | සෑම keystroke එකේදීම provider ට යවයි
+                onChanged: ticketProvider.setSearchQuery,
+                decoration: InputDecoration(
+                  hintText: 'Search events, venues, artists…',
+                  prefixIcon:
+                      const Icon(Icons.search, color: AppColors.textMuted),
+                  // Clear button appears only when there is text
+                  // පෙළ ඇත්නම් පමණක් Clear (×) බොත්තම දිස්වේ
+                  suffixIcon: _searchController.text.isNotEmpty
+                      ? IconButton(
+                          icon: const Icon(Icons.clear,
+                              color: AppColors.textMuted, size: 18),
+                          onPressed: () {
+                            _searchController.clear();
+                            ticketProvider.setSearchQuery('');
+                          },
+                        )
+                      : null,
+                ),
+              ),
+            ),
+          ),
+
+          // ── Category Filter Chips: Horizontal scrollable chip row ────────
+          // ── ප්‍රවර්ග ෆිල්ටර් Chips: තිරස් අනුචලන chip රේඛාව ───────────
+          SliverToBoxAdapter(
+            child: SizedBox(
+              height: 44,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16),
+                itemCount: TicketProvider.categories.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 8),
+                itemBuilder: (context, index) {
+                  final cat = TicketProvider.categories[index];
+                  final selected =
+                      ticketProvider.selectedCategories.contains(cat);
+                  return GestureDetector(
+                    onTap: () =>
+                        ticketProvider.setCategory(cat), // Toggle category filter | ප්‍රවර්ගය ෆිල්ටරය ටොගල් කරයි
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 8),
+                      decoration: BoxDecoration(
+                        // Active: accent fill, inactive: surface variant
+                        // ක්‍රියාශීලී: accent fill, අක්‍රිය: surface variant
+                        color: selected
+                            ? AppColors.accent
+                            : AppColors.surfaceVariant,
+                        borderRadius: BorderRadius.circular(24),
+                        border: Border.all(
+                          color: selected
+                              ? AppColors.accent
+                              : Colors.transparent,
+                        ),
+                      ),
+                      child: Text(
+                        cat,
+                        style: TextStyle(
+                          color: selected
+                              ? Colors.white
+                              : AppColors.textSecondary,
+                          fontWeight: selected
+                              ? FontWeight.bold
+                              : FontWeight.normal,
+                          fontSize: 13,
+                        ),
                       ),
                     ),
+                  );
+                },
+              ),
+            ),
+          ),
+
+          const SliverToBoxAdapter(child: SizedBox(height: 12)),
+
+          // ── Organizer Quick-Link Banner (visible only if organizer role) ─
+          // ── සංවිධායක ඉක්මන් සබැඳිය banner (organizer role ඇත්නම් පමණ) ──
+          if (auth.isSignedIn && auth.role == UserRole.organizer)
+            SliverToBoxAdapter(
+              child: GestureDetector(
+                onTap: () => Navigator.of(context)
+                    .pushNamed('/organizer_dashboard'),
+                child: Container(
+                  margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    gradient: AppColors.organizerGradient,
+                    borderRadius: BorderRadius.circular(14),
                   ),
-                );
-              }).toList(),
-            ),
-          ),
-          // Tickets list
-          Expanded(
-            child: FutureBuilder<List<Ticket>>(
-              future: _ticketsFuture,
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                } else if (snapshot.hasError) {
-                  return Center(child: Text('Error: ${snapshot.error}'));
-                } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
-                  return const Center(child: Text('No tickets available'));
-                }
-
-                List<Ticket> tickets = snapshot.data!;
-                return ListView.builder(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: tickets.length,
-                  itemBuilder: (context, index) {
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 16),
-                      child: GestureDetector(
-                        onTap: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) =>
-                                  TicketDetailScreen(ticket: tickets[index]),
-                            ),
-                          );
-                        },
-                        child: TicketCard(ticket: tickets[index]),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.business, color: Colors.white),
+                      SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Go to Organizer Dashboard →',
+                          style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold),
+                        ),
                       ),
-                    );
-                  },
-                );
-              },
-            ),
-          ),
-        ],
-      ),
-      bottomNavigationBar: BottomNavigationBar(
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
-          BottomNavigationBarItem(
-              icon: Icon(Icons.bookmark), label: 'My Bookings'),
-          BottomNavigationBarItem(
-              icon: Icon(Icons.favorite), label: 'Favorites'),
-        ],
-        onTap: (index) {
-          if (index == 1) {
-            Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const MyBookingsScreen()),
-            );
-          }
-        },
-      ),
-    );
-  }
-
-  void _showProfileMenu() async {
-    final user = FirebaseAuth.instance.currentUser;
-    final firestore = context.read<FirestoreService>();
-
-    // Build base menu items depending on authentication state
-    List<Widget> items = [];
-    if (user == null) {
-      items.addAll([
-        ListTile(
-          leading: const Icon(Icons.login),
-          title: const Text('Login'),
-          onTap: () {
-            Navigator.pop(context);
-            Navigator.of(context).push(MaterialPageRoute(
-                builder: (_) => const LoginScreen(initialSignUp: false)));
-          },
-        ),
-        ListTile(
-          leading: const Icon(Icons.person_add),
-          title: const Text('Sign Up'),
-          onTap: () {
-            Navigator.pop(context);
-            Navigator.of(context).push(MaterialPageRoute(
-                builder: (_) => const LoginScreen(initialSignUp: true)));
-          },
-        ),
-      ]);
-    } else {
-      items.addAll([
-        ListTile(
-          leading: const Icon(Icons.person),
-          title: const Text('Profile'),
-          onTap: () {
-            Navigator.pop(context);
-            Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const ProfileScreen()),
-            );
-          },
-        ),
-        ListTile(
-          leading: const Icon(Icons.settings),
-          title: const Text('Settings'),
-          onTap: () {
-            Navigator.pop(context);
-            // Navigate to settings screen
-          },
-        ),
-        ListTile(
-          leading: const Icon(Icons.logout),
-          title: const Text('Logout'),
-          onTap: () {
-            Navigator.pop(context);
-            _logout();
-          },
-        ),
-      ]);
-      items.add(const Divider());
-    }
-
-    // If user is signed in and is admin, insert admin actions
-    if (user != null) {
-      try {
-        final profile = await firestore.getUserProfile(user.uid);
-        if (profile != null && profile.role == 'admin') {
-          // Insert admin entry before divider
-          items.insertAll(2, [
-            ListTile(
-              leading: const Icon(Icons.admin_panel_settings),
-              title: const Text('Admin Panel'),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.of(context).pushNamed('/admin_panel');
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.group),
-              title: const Text('Manage Users'),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.of(context).pushNamed('/admin_users');
-              },
-            ),
-          ]);
-        }
-      } catch (_) {
-        // ignore errors fetching profile
-      }
-    }
-
-    if (!mounted) return;
-    showModalBottomSheet(
-      context: context,
-      builder: (context) => Wrap(children: items),
-    );
-  }
-
-  void _logout() async {
-    final authService = context.read<AuthService>();
-    await authService.signOut();
-    if (mounted) {
-      Navigator.of(context).pushReplacementNamed('/login');
-    }
-  }
-}
-
-class MyBookingsScreen extends StatelessWidget {
-  const MyBookingsScreen({Key? key}) : super(key: key);
-
-  @override
-  Widget build(BuildContext context) {
-    final user = FirebaseAuth.instance.currentUser;
-    final firestoreService = context.read<FirestoreService>();
-
-    if (user == null) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('My Bookings')),
-        body: const Center(child: Text('Please log in to view your bookings')),
-      );
-    }
-
-    return Scaffold(
-      appBar: AppBar(title: const Text('My Bookings')),
-      body: FutureBuilder(
-        future: firestoreService.getUserBookings(user.uid),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          } else if (snapshot.hasError) {
-            return Center(child: Text('Error: ${snapshot.error}'));
-          } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
-            return const Center(child: Text('No bookings yet'));
-          }
-
-          var bookings = snapshot.data!;
-          return ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: bookings.length,
-            itemBuilder: (context, index) {
-              var booking = bookings[index];
-              return Card(
-                child: ListTile(
-                  title: Text(booking.eventName),
-                  subtitle: Text(
-                      'Qty: ${booking.quantity} | Rs. ${booking.totalPrice}'),
-                  trailing: Chip(
-                    label: Text(booking.status),
-                    backgroundColor: booking.status == 'confirmed'
-                        ? Colors.green
-                        : Colors.orange,
-                    labelStyle: const TextStyle(color: Colors.white),
+                    ],
                   ),
                 ),
-              );
-            },
-          );
-        },
+              ),
+            ),
+
+          // ── Section Label: Shows category filter and event count ─────────
+          // ── කොටස් ලේබලය: ප්‍රවර්ගය ෆිල්ටරය සහ සිදුවීම් ගණන ─────────────
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  // Shows current filter label or "All Events"
+                  // දැනට ඇති ෆිල්ටරය හෝ "All Events" ලේබලය
+                  Text(
+                    ticketProvider.selectedCategories.contains('All')
+                        ? 'All Events'
+                        : ticketProvider.selectedCategories.join(', '),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  // Shows total count after loading completes | loading ඉවර වූ පසු ගණනය
+                  if (!ticketProvider.isLoading)
+                    Text(
+                      '${ticketProvider.events.length} events',
+                      style: const TextStyle(
+                          color: AppColors.textMuted, fontSize: 13),
+                    ),
+                ],
+              ),
+            ),
+          ),
+
+          // ── Events Content: Loading / Empty / List ────────────────────────
+          // ── සිදුවීම් අන්තර්ගතය: Loading / හිස් / ලැයිස්තුව ──────────────
+          if (ticketProvider.isLoading)
+            // Loading state: show centered spinner | Loading: spinner
+            const SliverFillRemaining(
+              child: Center(
+                  child: CircularProgressIndicator(
+                      color: AppColors.accent)),
+            )
+          else if (ticketProvider.events.isEmpty)
+            // Empty state: show icon and clear filter button
+            // හිස් state: icon සහ ෆිල්ටර් ඉවත් කිරීමේ බොත්තම
+            SliverFillRemaining(
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.event_busy,
+                        size: 64,
+                        color:
+                            AppColors.accent.withValues(alpha: 0.4)),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'No events found',
+                      style: TextStyle(
+                          color: AppColors.textSecondary, fontSize: 18),
+                    ),
+                    const SizedBox(height: 8),
+                    TextButton(
+                      onPressed: () {
+                        _searchController.clear();
+                        ticketProvider.clearFilters();
+                      },
+                      child: const Text('Clear filters'),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          else
+            // List of events: tapping opens TicketDetailScreen
+            // සිදුවීම් ලැයිස්තුව: tap කළ විට TicketDetailScreen විවෘත කරයි
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+              sliver: SliverList(
+                delegate: SliverChildBuilderDelegate(
+                  (context, index) {
+                    final t = ticketProvider.events[index];
+                    return GestureDetector(
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => TicketDetailScreen(ticket: t),
+                        ),
+                      ),
+                      child: TicketCard(ticket: t),
+                    );
+                  },
+                  childCount: ticketProvider.events.length,
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }

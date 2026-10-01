@@ -1,9 +1,19 @@
+// lib/services/mock_firestore_service.dart
+// ─────────────────────────────────────────────────────────────────────────────
+// MockFirestoreService | ආදර්ශ Firestore සේවා පන්තිය
+// A local mock database service that simulates Firestore behavior for testing.
+// පරීක්ෂණ කටයුතු සඳහා Firestore ක්‍රියාකාරිත්වය අනුකරණය කරන දේශීය ආදර්ශ සේවා පන්තියකි.
+// Uses delayed futures to mimic realistic internet network latency.
+// යථාර්ථවාදී අන්තර්ජාල ප්‍රමාදයන් අනුකරණය කිරීමට ප්‍රමාද කළ Future වස්තූන් භාවිතා කරයි.
+// ─────────────────────────────────────────────────────────────────────────────
 import '../models/ticket.dart';
 import '../models/booking.dart';
 import '../models/user.dart' as user_model;
 
 class MockFirestoreService {
-  // Mock tickets data
+  // ─── Mock Tickets Data | ආදර්ශ ප්‍රවේශපත්‍ර දත්ත ──────────────────────────────
+  // In-memory list of events representing simulated Firestore documents.
+  // Firestore ලේඛන නියෝජනය කරන මතකයේ රඳවාගත් ආදර්ශ සිදුවීම් ලැයිස්තුව.
   static final List<Ticket> _mockTickets = [
     Ticket(
       id: '1',
@@ -13,7 +23,7 @@ class MockFirestoreService {
       eventImage: 'https://via.placeholder.com/400x200?text=Metallica+Concert',
       venue: 'Colombo City Centre',
       eventDate: DateTime.now().add(const Duration(days: 30)),
-      price: '5000',
+      price: 5000.0,
       category: 'Concert',
       availableSeats: 150,
       organizer: 'Live Events Sri Lanka',
@@ -26,7 +36,7 @@ class MockFirestoreService {
       eventImage: 'https://via.placeholder.com/400x200?text=Cricket+Match',
       venue: 'Colombo Oval',
       eventDate: DateTime.now().add(const Duration(days: 15)),
-      price: '2500',
+      price: 2500.0,
       category: 'Sports',
       availableSeats: 500,
       organizer: 'Sri Lanka Cricket Board',
@@ -39,7 +49,7 @@ class MockFirestoreService {
       eventImage: 'https://via.placeholder.com/400x200?text=Avatar+4',
       venue: 'Cineplex Colombo',
       eventDate: DateTime.now().add(const Duration(days: 5)),
-      price: '1200',
+      price: 1200.0,
       category: 'Movie',
       availableSeats: 200,
       organizer: 'Cineplex Theaters',
@@ -52,7 +62,7 @@ class MockFirestoreService {
       eventImage: 'https://via.placeholder.com/400x200?text=Hamlet+Theater',
       venue: 'National Theatre, Colombo',
       eventDate: DateTime.now().add(const Duration(days: 20)),
-      price: '1500',
+      price: 1500.0,
       category: 'Theater',
       availableSeats: 100,
       organizer: 'National Theatre Company',
@@ -65,7 +75,7 @@ class MockFirestoreService {
       eventImage: 'https://via.placeholder.com/400x200?text=The+Weeknd',
       venue: 'Sugathadasa Stadium',
       eventDate: DateTime.now().add(const Duration(days: 45)),
-      price: '7500',
+      price: 7500.0,
       category: 'Concert',
       availableSeats: 300,
       organizer: 'Astro Tours',
@@ -78,27 +88,29 @@ class MockFirestoreService {
       eventImage: 'https://via.placeholder.com/400x200?text=Comedy+Night',
       venue: 'Hilton Colombo',
       eventDate: DateTime.now().add(const Duration(days: 10)),
-      price: '1000',
+      price: 1000.0,
       category: 'Theater',
       availableSeats: 250,
       organizer: 'Comedy Central Sri Lanka',
     ),
   ];
 
-  // Get all tickets
+  // ─── getAllTickets: Fetch all mock tickets | සියලුම ආදර්ශ ප්‍රවේශපත්‍ර ලබා ගැනීම ───
+  // Simulates fetching with a 500ms network delay.
+  // මිලි තත්පර 500ක ජාල ප්‍රමාදයක් සමඟ සියලුම ප්‍රවේශපත්‍ර ලබා ගැනීම අනුකරණය කරයි.
   Future<List<Ticket>> getAllTickets() async {
     await Future.delayed(
         const Duration(milliseconds: 500)); // Simulate network delay
     return _mockTickets;
   }
 
-  // Get tickets by category
+  // ─── getTicketsByCategory: Filter by category | කාණ්ඩය අනුව පෙරීම ─────────────────
   Future<List<Ticket>> getTicketsByCategory(String category) async {
     await Future.delayed(const Duration(milliseconds: 500));
     return _mockTickets.where((ticket) => ticket.category == category).toList();
   }
 
-  // Get single ticket
+  // ─── getTicket: Fetch one mock event | එක් ආදර්ශ සිදුවීමක් ලබා ගැනීම ──────────────
   Future<Ticket?> getTicket(String ticketId) async {
     await Future.delayed(const Duration(milliseconds: 300));
     try {
@@ -108,7 +120,9 @@ class MockFirestoreService {
     }
   }
 
-  // Add ticket (mock)
+  // ─── addTicket: Append mock event | ආදර්ශ සිදුවීමක් ඇතුළත් කිරීම ───────────────────
+  // Calculates next numeric ID and appends ticket to private memory list.
+  // ඊළඟ අංකිත ID එක ගණනය කර දේශීය මතක ලැයිස්තුවට ප්‍රවේශපත්‍රය ඇතුළත් කරයි.
   Future<String> addTicket(Ticket ticket) async {
     await Future.delayed(const Duration(milliseconds: 500));
     final newId = (int.parse(_mockTickets.last.id) + 1).toString();
@@ -127,7 +141,7 @@ class MockFirestoreService {
     return newId;
   }
 
-  // Update ticket (mock)
+  // ─── updateTicket: Update mock event details | ආදර්ශ සිදුවීමක් යාවත්කාලීන කිරීම ───
   Future<void> updateTicket(String ticketId, Ticket ticket) async {
     await Future.delayed(const Duration(milliseconds: 500));
     final index = _mockTickets.indexWhere((t) => t.id == ticketId);
@@ -147,41 +161,43 @@ class MockFirestoreService {
     }
   }
 
-  // Create booking
+  // ─── createBooking: Mock create booking | ආදර්ශ වෙන්කිරීමක් නිර්මාණය කිරීම ──────
+  // Generates a mock booking ID string using the current timestamp.
+  // වත්මන් කාල මුද්‍රාව භාවිතයෙන් ආදර්ශ වෙන්කිරීම් ID පෙළක් නිර්මාණය කරයි.
   Future<String> createBooking(Booking booking) async {
     await Future.delayed(const Duration(milliseconds: 500));
     return 'booking_${DateTime.now().millisecondsSinceEpoch}';
   }
 
-  // Get user bookings
+  // ─── getUserBookings: Mock list user bookings | පරිශීලකයාගේ වෙන්කිරීම් ලබා ගැනීම ──
   Future<List<Booking>> getUserBookings(String userId) async {
     await Future.delayed(const Duration(milliseconds: 500));
     return [];
   }
 
-  // Get booking details
+  // ─── getBooking: Mock retrieve single booking | එක් ආදර්ශ වෙන්කිරීමක් ලබා ගැනීම ───
   Future<Booking?> getBooking(String bookingId) async {
     await Future.delayed(const Duration(milliseconds: 300));
     return null;
   }
 
-  // Update booking status
+  // ─── updateBookingStatus: Mock status update | වෙන්කිරීම් තත්වය යාවත්කාලීන කිරීම ──
   Future<void> updateBookingStatus(String bookingId, String status) async {
     await Future.delayed(const Duration(milliseconds: 500));
   }
 
-  // Create user profile
+  // ─── createUserProfile: Mock user profile creation | පරිශීලක පැතිකඩක් සෑදීම ──────
   Future<void> createUserProfile(String userId, user_model.User user) async {
     await Future.delayed(const Duration(milliseconds: 500));
   }
 
-  // Get user profile
+  // ─── getUserProfile: Mock user profile fetching | පරිශීලක පැතිකඩ ලබා ගැනීම ────────
   Future<user_model.User?> getUserProfile(String userId) async {
     await Future.delayed(const Duration(milliseconds: 300));
     return null;
   }
 
-  // Update user profile
+  // ─── updateUserProfile: Mock update profile fields | පරිශීලක පැතිකඩ වෙනස් කිරීම ──
   Future<void> updateUserProfile(
       String userId, Map<String, dynamic> data) async {
     await Future.delayed(const Duration(milliseconds: 500));

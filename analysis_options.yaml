@@ -26,10 +26,20 @@ linter:
     - avoid_empty_else
     - avoid_print
     - avoid_relative_lib_imports
-    - avoid_returning_null_for_future
     - avoid_slow_async_io
     - cancel_subscriptions
     - close_sinks
+    - prefer_const_constructors
+    - prefer_const_literals_to_create_immutables
+    - prefer_final_locals
+    - always_declare_return_types
+    - use_super_parameters
+    - use_key_in_widget_constructors
+    - await_only_futures
+    - avoid_void_async
+    - prefer_final_fields
+    - annotate_overrides
+    - sort_child_properties_last
     - comment_references
     - control_flow_in_finally
     - empty_statements

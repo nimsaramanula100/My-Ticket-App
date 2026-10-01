@@ -1,368 +1,463 @@
+// lib/screens/login_screen.dart
+// ─────────────────────────────────────────────────────────────────────────────
+// LoginScreen | ලොගින් තිරය (Authentication Screen)
+// Dual-tab login & signup screen for both User and Organizer accounts.
+// Tab switching resets forms. Submit routes to the correct dashboard based on role.
+// පරිශීලක (User) සහ සංවිධායක (Organizer) ගිණුම් සඳහා ද්විත්ව-ටැබ් ලොගින් & ලියාපදිංචි තිරය.
+// ටැබ් ස්විච් කළ විට පෝරම නිර්මල වේ. ඉදිරිපත් කිරීමෙන් භූමිකාව අනුව නිවැරදි dashboard ට යෙදෙයි.
+// ─────────────────────────────────────────────────────────────────────────────
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../services/auth_service.dart';
-import '../services/firestore_service.dart';
-import '../models/user.dart' as user_model;
+import '../providers/auth_provider.dart';
+import '../providers/organizer_provider.dart';
+import '../models/user.dart';
+import '../theme/color_palette.dart';
 
 class LoginScreen extends StatefulWidget {
-  final bool initialSignUp;
-
-  const LoginScreen({Key? key, this.initialSignUp = false}) : super(key: key);
+  const LoginScreen({super.key});
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> {
-  final _formKey = GlobalKey<FormState>();
-  final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
-  bool _isLoading = false;
-  bool _isSignUpMode = false;
-  final _nameController = TextEditingController();
-  final _phoneController = TextEditingController();
-  String _selectedRole = 'user'; // 'user' or 'admin'
+// Uses SingleTickerProviderStateMixin for TabController vsync
+// TabController vsync සඳහා SingleTickerProviderStateMixin භාවිත කරයි
+class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStateMixin {
+  // ─── Tab & Form Keys | ටැබ් සහ පෝරම යතුරු ───────────────────────────────
+  late TabController _tabController; // Manages User / Organizer tabs | User / Organizer ටැබ් කළමනාකරණය
+  final _formKeyUser = GlobalKey<FormState>(); // User tab form key | පරිශීලක ටැබ් පෝරම යතුර
+  final _formKeyOrg = GlobalKey<FormState>();  // Organizer tab form key | සංවිධායක ටැබ් පෝරම යතුර
+
+  // ─── Input Controllers | ආදාන පාලක ─────────────────────────────────────────
+  final _nameController = TextEditingController();            // Full name | සම්පූර්ණ නම
+  final _emailController = TextEditingController();           // Email address | ඊමේල් ලිපිනය
+  final _passwordController = TextEditingController();        // Password | මුරපදය
+  final _confirmPasswordController = TextEditingController(); // Confirm password (signup) | මුරපදය තහවුරු කිරීම
+  final _phoneController = TextEditingController();           // Phone number | දුරකථන අංකය
+  final _orgNameController = TextEditingController();         // Organization name (organizer) | සංවිධාව නම
+  final _bioController = TextEditingController();             // Short bio (organizer) | කෙටි හැඳිනීම
+
+  // ─── UI State Flags | UI තත්ව ලකුණු ─────────────────────────────────────────
+  bool _isSignUp = false;               // Toggle between login & signup | ලොගිනය සහ ලියාපදිංචිය අතර
+  bool _obscurePassword = true;         // Hide/show password | මුරපදය සඟවයි/පෙන්වයි
+  bool _obscureConfirmPassword = true;  // Hide/show confirm password | තහවුරු මුරපදය සඟවයි/පෙන්වයි
 
   @override
   void initState() {
     super.initState();
-    _isSignUpMode = widget.initialSignUp;
+    // Create TabController with 2 tabs (User, Organizer)
+    // ටැබ් 2 ක් (User, Organizer) සහිත TabController ගොඩනඟයි
+    _tabController = TabController(length: 2, vsync: this);
+    _tabController.addListener(() {
+      // When tab switches, reset signup mode and clear all fields
+      // ටැබ් මාරු වූ විට signup mode නැවත සකසා සියළු ක්ෂේත්‍ර හිස් කරයි
+      setState(() {
+        _isSignUp = false;
+        _clearControllers();
+      });
+    });
+  }
+
+  // ─── _clearControllers: Reset all text input fields | සියළු ආදාන ක්ෂේත්‍ර හිස් කරයි ──
+  void _clearControllers() {
+    _nameController.clear();
+    _emailController.clear();
+    _passwordController.clear();
+    _confirmPasswordController.clear();
+    _phoneController.clear();
+    _orgNameController.clear();
+    _bioController.clear();
   }
 
   @override
   void dispose() {
+    // Dispose all controllers and tab controller to prevent memory leaks
+    // මතකය නාස්ති නොවීමට සියළු controllers dispose කරයි
+    _tabController.dispose();
+    _nameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
-    _nameController.dispose();
+    _confirmPasswordController.dispose();
     _phoneController.dispose();
+    _orgNameController.dispose();
+    _bioController.dispose();
     super.dispose();
   }
 
-  void _handleLogin() async {
-    if (_formKey.currentState!.validate()) {
-      setState(() => _isLoading = true);
-      try {
-        final authService = context.read<AuthService>();
-        final user = await authService.signIn(
-          email: _emailController.text,
-          password: _passwordController.text,
-        );
+  // ─── _submit: Handle login/register and navigate based on role ──────────
+  // _submit: ලොගිනය/ලියාපදිංචිය සහ role-based navigation කළමනාකරණය
+  Future<void> _submit(bool isOrganizer) async {
+    final formKey = isOrganizer ? _formKeyOrg : _formKeyUser;
+    if (!formKey.currentState!.validate()) return; // Validate form | පෝරමය සත්‍යාපනය
 
-        if (user != null && mounted) {
-          final firestoreService = context.read<FirestoreService>();
-          // If organizer/admin login selected, verify role in profile
-          if (_selectedRole == 'admin') {
-            final profile = await firestoreService.getUserProfile(user.uid);
-            if (profile != null && profile.role == 'admin') {
-              Navigator.of(context).pushReplacementNamed('/admin_panel');
-            } else {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                    content: Text('This account is not an organizer/admin.')),
-              );
-            }
-          } else {
-            Navigator.of(context).pushReplacementNamed('/home');
-          }
-        }
-      } catch (e) {
-        if (mounted) {
-          final msg = e.toString();
-          final friendly =
-              msg.contains('Firebase options are not configured') ||
-                  msg.contains('Firebase options not provided') ||
-                  msg.contains('CONFIGURATION_NOT_FOUND') ||
-                  msg.toLowerCase().contains('configuration_not_found');
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-                content: Text(friendly
-                    ? 'Firebase configuration not found. Make sure you added the platform config (google-services.json / GoogleService-Info.plist) or run with --dart-define as described in README.'
-                    : msg)),
-          );
-        }
-      } finally {
-        if (mounted) setState(() => _isLoading = false);
+    final auth = context.read<AuthProvider>();
+    final orgProvider = context.read<OrganizerProvider>();
+
+    bool success = false;
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
+
+    if (isOrganizer) {
+      if (_isSignUp) {
+        // Register new organizer account | නව සංවිධායක ගිණුමක් ලියාපදිංචි කරයි
+        success = await auth.registerOrganizer(
+          name: _nameController.text.trim(),
+          email: email,
+          password: password,
+          orgName: _orgNameController.text.trim(),
+          phone: _phoneController.text.trim(),
+          bio: _bioController.text.trim(),
+        );
+      } else {
+        // Sign in existing organizer | පවත්නා සංවිධායකයෙකු ලොගිනය කරයි
+        success = await auth.signIn(email, password);
+      }
+    } else {
+      if (_isSignUp) {
+        // Register new regular user | නව සාමාන්‍ය පරිශීලකයෙකු ලියාපදිංචි කරයි
+        success = await auth.registerUser(
+          name: _nameController.text.trim(),
+          email: email,
+          password: password,
+          phone: _phoneController.text.trim(),
+        );
+      } else {
+        // Sign in existing user | පවත්නා පරිශීලකයෙකු ලොගිනය කරයි
+        success = await auth.signIn(email, password);
       }
     }
-  }
 
-  void _handleSignUp() async {
-    if (_formKey.currentState!.validate()) {
-      setState(() => _isLoading = true);
-      try {
-        final authService = context.read<AuthService>();
-        final firestoreService = context.read<FirestoreService>();
+    if (!mounted) return;
 
-        final user = await authService.signUp(
-          email: _emailController.text,
-          password: _passwordController.text,
-          name: _nameController.text,
-          phone: _phoneController.text,
-        );
-
-        if (user != null) {
-          // Create user profile in Firestore
-          final userProfile = user_model.User(
-            id: user.uid,
-            name: _nameController.text,
-            email: _emailController.text,
-            phone: _phoneController.text,
-            profileImage: '',
-            createdAt: DateTime.now(),
-            role: _selectedRole == 'admin' ? 'admin' : 'user',
-          );
-
-          await firestoreService.createUserProfile(user.uid, userProfile);
-
-          if (mounted) {
-            if (_selectedRole == 'admin') {
-              Navigator.of(context).pushReplacementNamed('/admin_panel');
-            } else {
-              Navigator.of(context).pushReplacementNamed('/home');
-            }
-          }
+    if (success) {
+      // Navigate based on authenticated user role
+      // ප්‍රමාණීකරණ භූමිකාව (role) අනුව නිවැරදි dashboard ට යෙදෙයි
+      final role = auth.role;
+      if (role == UserRole.organizer) {
+        final orgId = auth.appUser?.organizerId;
+        if (orgId != null) {
+          await orgProvider.initialize(orgId); // Pre-load organizer data | සංවිධායක දත්ත කලින් ලෝඩ් කරයි
+          if (!mounted) return;
         }
-      } catch (e) {
-        if (mounted) {
-          final msg = e.toString();
-          final friendly =
-              msg.contains('Firebase options are not configured') ||
-                  msg.contains('Firebase options not provided') ||
-                  msg.contains('CONFIGURATION_NOT_FOUND') ||
-                  msg.toLowerCase().contains('configuration_not_found');
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-                content: Text(friendly
-                    ? 'Firebase configuration not found. Make sure you added the platform config (google-services.json / GoogleService-Info.plist) or run with --dart-define as described in README.'
-                    : msg)),
-          );
-        }
-      } finally {
-        if (mounted) setState(() => _isLoading = false);
+        Navigator.of(context).pushReplacementNamed('/organizer_dashboard');
+      } else if (role == UserRole.admin) {
+        Navigator.of(context).pushReplacementNamed('/admin_panel');
+      } else {
+        Navigator.of(context).pushReplacementNamed('/home');
       }
+    } else {
+      // Show error snackbar if auth fails | ප්‍රමාණීකරණය අසාර්ථක නම් දෝෂ Snackbar
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(auth.error ?? 'Authentication failed'),
+          backgroundColor: AppColors.error,
+        ),
+      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    // Watch loading state from AuthProvider | AuthProvider හි loading තත්වය නිරීක්ෂණය
+    final isLoading = context.watch<AuthProvider>().isLoading;
+    // Active tab's accent color (user=blue, organizer=orange)
+    // ක්‍රියාශීලී ටැබ්හි වර්ණය (user=නිල්, organizer=තැඹිලි)
+    final primaryColor = _tabController.index == 1
+        ? AppColors.organizerAccent
+        : AppColors.accent;
+
     return Scaffold(
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [Colors.blue.shade600, Colors.blue.shade900],
-          ),
+      backgroundColor: AppColors.background,
+      appBar: AppBar(
+        title: const Text('MyTickets.lk'),
+        centerTitle: true,
+        bottom: TabBar(
+          controller: _tabController,
+          indicatorColor: primaryColor,
+          labelColor: Colors.white,
+          unselectedLabelColor: AppColors.textMuted,
+          tabs: const [
+            Tab(icon: Icon(Icons.person), text: 'User Account'),
+            Tab(icon: Icon(Icons.business), text: 'Organizer'),
+          ],
         ),
-        child: SafeArea(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Center(
-                  child: Column(
-                    children: [
-                      const Icon(
-                        Icons.local_activity,
-                        size: 60,
-                        color: Colors.white,
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        'MyTickets',
-                        style: Theme.of(context)
-                            .textTheme
-                            .headlineMedium
-                            ?.copyWith(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                            ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 32),
-                Text(
-                  _isSignUpMode ? 'Create Account' : 'Welcome Back',
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                      ),
-                ),
-                const SizedBox(height: 24),
-                Form(
-                  key: _formKey,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      if (_isSignUpMode)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 16.0),
-                          child: _buildTextField(
-                            _nameController,
-                            'Full Name',
-                            Icons.person,
-                          ),
-                        ),
-                      // Role selector (User or Organizer)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 16.0),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: RadioListTile<String>(
-                                title: const Text('User'),
-                                value: 'user',
-                                groupValue: _selectedRole,
-                                onChanged: (v) =>
-                                    setState(() => _selectedRole = v!),
-                              ),
-                            ),
-                            Expanded(
-                              child: RadioListTile<String>(
-                                title: const Text('Organizer'),
-                                value: 'admin',
-                                groupValue: _selectedRole,
-                                onChanged: (v) =>
-                                    setState(() => _selectedRole = v!),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 16.0),
-                        child: _buildTextField(
-                          _emailController,
-                          'Email',
-                          Icons.email,
-                        ),
-                      ),
-                      if (_isSignUpMode)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 16.0),
-                          child: _buildTextField(
-                            _phoneController,
-                            'Phone Number',
-                            Icons.phone,
-                          ),
-                        ),
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 24.0),
-                        child: _buildTextField(
-                          _passwordController,
-                          'Password',
-                          Icons.lock,
-                          obscureText: true,
-                        ),
-                      ),
-                      ElevatedButton(
-                        onPressed: _isLoading
-                            ? null
-                            : (_isSignUpMode ? _handleSignUp : _handleLogin),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                        ),
-                        child: _isLoading
-                            ? const SizedBox(
-                                height: 20,
-                                width: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : Text(
-                                _isSignUpMode ? 'Sign Up' : 'Login',
-                                style: const TextStyle(
-                                  color: Colors.blue,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 16,
-                                ),
-                              ),
-                      ),
-                      const SizedBox(height: 16),
-                      Center(
-                        child: GestureDetector(
-                          onTap: () {
-                            setState(() => _isSignUpMode = !_isSignUpMode);
-                            _formKey.currentState?.reset();
-                          },
-                          child: RichText(
-                            text: TextSpan(
-                              text: _isSignUpMode
-                                  ? 'Already have an account? '
-                                  : 'Don\'t have an account? ',
-                              style: const TextStyle(color: Colors.white),
-                              children: [
-                                TextSpan(
-                                  text: _isSignUpMode ? 'Login' : 'Sign Up',
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                    decoration: TextDecoration.underline,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
+      ),
+      body: SafeArea(
+        child: TabBarView(
+          controller: _tabController,
+          children: [
+            // User login/signup tab | පරිශීලක ලොගිනය/ලියාපදිංචිය ටැබ්
+            _buildAuthForm(isOrganizer: false, formKey: _formKeyUser, isLoading: isLoading, accentColor: AppColors.accent),
+            // Organizer login/signup tab | සංවිධායක ලොගිනය/ලියාපදිංචිය ටැබ්
+            _buildAuthForm(isOrganizer: true, formKey: _formKeyOrg, isLoading: isLoading, accentColor: AppColors.organizerAccent),
+          ],
         ),
       ),
     );
   }
 
-  Widget _buildTextField(
-    TextEditingController controller,
-    String label,
-    IconData icon, {
-    bool obscureText = false,
+  // ─── _buildAuthForm: Shared form builder for both tabs ──────────────────
+  // _buildAuthForm: ටැබ් දෙකම සඳහා පොදු පෝරම ගොඩනිව්ම
+  Widget _buildAuthForm({
+    required bool isOrganizer,
+    required GlobalKey<FormState> formKey,
+    required bool isLoading,
+    required Color accentColor,
   }) {
-    return TextFormField(
-      controller: controller,
-      decoration: InputDecoration(
-        hintText: label,
-        hintStyle: const TextStyle(color: Colors.white70),
-        prefixIcon: Icon(icon, color: Colors.white70),
-        filled: true,
-        fillColor: Colors.white.withValues(alpha: 0.1),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: Colors.white30),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: Colors.white30),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: Colors.white),
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 20.0),
+      child: Form(
+        key: formKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SizedBox(height: 20),
+            // Branding icon — changes based on account type
+            // සිරුරු නිරූපකය — ගිණුම් වර්ගය අනුව වෙනස් වේ
+            Center(
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: accentColor.withValues(alpha: 0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  isOrganizer ? Icons.business : Icons.local_activity,
+                  size: 64,
+                  color: accentColor,
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            // Title — changes between signup/login and user/organizer
+            // මාතෘකාව — signup/login සහ user/organizer අනුව වෙනස් වේ
+            Center(
+              child: Text(
+                _isSignUp
+                    ? (isOrganizer ? 'Create Organizer Account' : 'Join MyTickets.lk')
+                    : (isOrganizer ? 'Organizer Portal' : 'Welcome Back'),
+                style: const TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            // Subtitle | උප මාතෘකාව
+            Center(
+              child: Text(
+                _isSignUp
+                    ? 'Fill in the details below to register'
+                    : 'Sign in to access your account',
+                style: const TextStyle(
+                  fontSize: 14,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            ),
+            const SizedBox(height: 32),
+
+            // ── Signup-only fields (shown only when _isSignUp is true) ──────
+            // ── ලියාපදිංචිය-පමණ ක්ෂේත්‍ර (_isSignUp=true ලදී) ──────────────
+            if (_isSignUp) ...[
+              // Full name | සම්පූර්ණ නම
+              TextFormField(
+                controller: _nameController,
+                style: const TextStyle(color: Colors.white),
+                decoration: const InputDecoration(
+                  labelText: 'Full Name',
+                  prefixIcon: Icon(Icons.person_outline),
+                ),
+                validator: (val) => val == null || val.trim().isEmpty ? 'Please enter your name' : null,
+              ),
+              const SizedBox(height: 16),
+
+              // Organization name (organizer accounts only)
+              // සංවිධා නම (සංවිධායක ගිණුම් සඳහා පමණක්)
+              if (isOrganizer) ...[
+                TextFormField(
+                  controller: _orgNameController,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(
+                    labelText: 'Organization Name',
+                    prefixIcon: Icon(Icons.business_outlined),
+                  ),
+                  validator: (val) => val == null || val.trim().isEmpty ? 'Please enter organization name' : null,
+                ),
+                const SizedBox(height: 16),
+              ],
+
+              // Phone number | දුරකථන අංකය
+              TextFormField(
+                controller: _phoneController,
+                style: const TextStyle(color: Colors.white),
+                keyboardType: TextInputType.phone,
+                decoration: const InputDecoration(
+                  labelText: 'Phone Number',
+                  prefixIcon: Icon(Icons.phone_outlined),
+                ),
+                validator: (val) => val == null || val.trim().isEmpty ? 'Please enter your phone number' : null,
+              ),
+              const SizedBox(height: 16),
+
+              // Short bio (organizer accounts only)
+              // කෙටි හැඳිනීම (සංවිධායක ගිණුම් සඳහා පමණක්)
+              if (isOrganizer) ...[
+                TextFormField(
+                  controller: _bioController,
+                  style: const TextStyle(color: Colors.white),
+                  maxLines: 3,
+                  decoration: const InputDecoration(
+                    labelText: 'Organizer Bio / Details',
+                    prefixIcon: Icon(Icons.info_outline),
+                    alignLabelWithHint: true,
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
+            ],
+
+            // ── Email field (always visible) | ඊමේල් ක්ෂේත්‍රය (සෑම විටම දෘශ්‍ය) ──
+            TextFormField(
+              controller: _emailController,
+              style: const TextStyle(color: Colors.white),
+              keyboardType: TextInputType.emailAddress,
+              decoration: const InputDecoration(
+                labelText: 'Email Address',
+                prefixIcon: Icon(Icons.email_outlined),
+              ),
+              validator: (val) {
+                if (val == null || val.trim().isEmpty) return 'Please enter email';
+                // Simple regex validation for email format
+                // ඊමේල් ආකෘතිය සරල regex හරහා සත්‍යාපනය කරයි
+                final emailRegExp = RegExp(r"^[a-zA-Z0-9.]+@[a-zA-Z0-9]+\.[a-zA-Z]+");
+                if (!emailRegExp.hasMatch(val.trim())) return 'Enter a valid email address';
+                return null;
+              },
+            ),
+            const SizedBox(height: 16),
+
+            // ── Password field with toggle visibility | දෘශ්‍යතා ටොගල් සහිත මුරපද ─
+            TextFormField(
+              controller: _passwordController,
+              style: const TextStyle(color: Colors.white),
+              obscureText: _obscurePassword,
+              decoration: InputDecoration(
+                labelText: 'Password',
+                prefixIcon: const Icon(Icons.lock_outlined),
+                suffixIcon: IconButton(
+                  // Eye icon toggles password visibility
+                  // ඇස් නිරූපකය මුරපදය සඟවයි/පෙන්වයි
+                  icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility),
+                  onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                ),
+              ),
+              validator: (val) => val == null || val.length < 6 ? 'Password must be at least 6 characters' : null,
+            ),
+            const SizedBox(height: 16),
+
+            // ── Signup: Confirm Password | ── ලියාපදිංචිය: මුරපදය තහවුරු ──────
+            if (_isSignUp) ...[
+              TextFormField(
+                controller: _confirmPasswordController,
+                style: const TextStyle(color: Colors.white),
+                obscureText: _obscureConfirmPassword,
+                decoration: InputDecoration(
+                  labelText: 'Confirm Password',
+                  prefixIcon: const Icon(Icons.lock_outlined),
+                  suffixIcon: IconButton(
+                    icon: Icon(_obscureConfirmPassword ? Icons.visibility_off : Icons.visibility),
+                    onPressed: () => setState(() => _obscureConfirmPassword = !_obscureConfirmPassword),
+                  ),
+                ),
+                // Check that both passwords match | මුරපද දෙකම ගැළපෙන දැයි සත්‍යාපනය
+                validator: (val) {
+                  if (val != _passwordController.text) return 'Passwords do not match';
+                  return null;
+                },
+              ),
+              const SizedBox(height: 24),
+            ] else ...[
+              const SizedBox(height: 12),
+              // Forgot password button (login mode only)
+              // "මුරපදය අමතකද?" බොත්තම (ලොගිනය ප්‍රකාරයේදී පමණක්)
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () {
+                    if (_emailController.text.trim().isNotEmpty) {
+                      // Trigger Firebase password reset email
+                      // Firebase මුරපද reset ඊමේලය යවයි
+                      context.read<AuthProvider>().sendPasswordReset(_emailController.text.trim());
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Password reset email sent!')),
+                      );
+                    } else {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Please enter your email first')),
+                      );
+                    }
+                  },
+                  child: const Text('Forgot Password?'),
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
+
+            // ── Submit Button | ── ඉදිරිපත් කිරීමේ බොත්තම ────────────────────
+            ElevatedButton(
+              onPressed: isLoading ? null : () => _submit(isOrganizer),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: accentColor,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              // Show spinner while loading, text otherwise
+              // Loading අතරතුර spinner, නැතිනම් බොත්තම් පෙළ
+              child: isLoading
+                  ? const SizedBox(
+                      height: 24,
+                      width: 24,
+                      child: CircularProgressIndicator(strokeWidth: 2.5, valueColor: AlwaysStoppedAnimation(Colors.white)),
+                    )
+                  : Text(
+                      _isSignUp ? 'Sign Up' : 'Log In',
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
+            ),
+            const SizedBox(height: 24),
+
+            // ── Login/Signup toggle link | ── ලොගිනය/ලියාපදිංචිය ස්විච් ─────
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  _isSignUp ? 'Already have an account? ' : "Don't have an account? ",
+                  style: const TextStyle(color: AppColors.textSecondary),
+                ),
+                GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      _isSignUp = !_isSignUp; // Toggle mode | ප්‍රකාරය මාරු කරයි
+                      _formKeyUser.currentState?.reset();
+                      _formKeyOrg.currentState?.reset();
+                    });
+                  },
+                  child: Text(
+                    _isSignUp ? 'Log In' : 'Sign Up',
+                    style: TextStyle(
+                      color: accentColor,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 40),
+          ],
         ),
       ),
-      style: const TextStyle(color: Colors.white),
-      obscureText: obscureText,
-      validator: (value) {
-        if (value == null || value.isEmpty) {
-          return '$label is required';
-        }
-        if (label == 'Email' &&
-            !RegExp(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
-                .hasMatch(value)) {
-          return 'Enter a valid email';
-        }
-        return null;
-      },
     );
   }
 }
